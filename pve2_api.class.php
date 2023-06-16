@@ -27,6 +27,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 class PVE2_Exception extends RuntimeException {}
 
+
 class PVE2_API {
 	protected $hostname;
 	protected $username;
@@ -34,14 +35,13 @@ class PVE2_API {
 	protected $password;
 	protected $port;
 	protected $verify_ssl;
-
 	protected $login_ticket = null;
 	protected $login_ticket_timestamp = null;
 	protected $cluster_node_list = null;
 
-	public function __construct ($hostname, $username, $realm, $password, $port = 8006, $verify_ssl = false) {
-		if (empty($hostname) || empty($username) || empty($realm) || empty($password) || empty($port)) {
-			throw new PVE2_Exception("Hostname/Username/Realm/Password/Port required for PVE2_API object constructor.", 1);
+	public function __construct ($hostname, $username, $realm, $password, $tokenid, $tokensecret, $port = 8006, $verify_ssl = false) {
+		if ((empty($hostname) || empty($realm)) || (empty($username) && empty($password) && empty($tokenid) && empty($tokensecret)) || empty($port)) {
+			throw new PVE2_Exception("Hostname/Realm and either Username/Password or TokenId/TokenSecret are required for PVE2_API object constructor.", 1);
 		}
 		// Check hostname resolves.
 		if (gethostbyname($hostname) == $hostname && !filter_var($hostname, FILTER_VALIDATE_IP)) {
@@ -59,9 +59,17 @@ class PVE2_API {
 		$this->hostname   = $hostname;
 		$this->username   = $username;
 		$this->realm      = $realm;
+		$this->tokenid    = $tokenid;
+		$this->tokensecret= $tokensecret;
 		$this->password   = $password;
 		$this->port       = $port;
 		$this->verify_ssl = $verify_ssl;
+		// Check if we have a tokenid and tokensecret, if so, we can use API token access.
+		if (!empty($tokenid) && !empty($tokensecret)) {
+			$this->api_token_access = true;
+		}else {
+			$this->api_token_access = false;
+		}
 	}
 
 	/*
@@ -71,63 +79,106 @@ class PVE2_API {
 	public function login () {
 		// Prepare login variables.
 		$login_postfields = array();
-		$login_postfields['username'] = $this->username;
-		$login_postfields['password'] = $this->password;
-		$login_postfields['realm'] = $this->realm;
-
-		$login_postfields_string = http_build_query($login_postfields);
-		unset($login_postfields);
-
-		// Perform login request.
+		
+		// Prepare cURL handle.
 		$prox_ch = curl_init();
-		curl_setopt($prox_ch, CURLOPT_URL, "https://{$this->hostname}:{$this->port}/api2/json/access/ticket");
-		curl_setopt($prox_ch, CURLOPT_POST, true);
-		curl_setopt($prox_ch, CURLOPT_RETURNTRANSFER, true);
-		curl_setopt($prox_ch, CURLOPT_POSTFIELDS, $login_postfields_string);
-		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYPEER, $this->verify_ssl);
-		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYHOST, $this->verify_ssl);
 
-		$login_ticket = curl_exec($prox_ch);
-		$login_request_info = curl_getinfo($prox_ch);
+		// Base URL for later use.
+		$api_url_base = "https://{$this->hostname}:{$this->port}/api2/json";
 
-		curl_close($prox_ch);
-		unset($prox_ch);
-		unset($login_postfields_string);
-
-		if (!$login_ticket) {
-			// SSL negotiation failed or connection timed out
-			$this->login_ticket_timestamp = null;
-			return false;
-		}
-
-		$login_ticket_data = json_decode($login_ticket, true);
-		if ($login_ticket_data == null || $login_ticket_data['data'] == null) {
-			// Login failed.
-			// Just to be safe, set this to null again.
-			$this->login_ticket_timestamp = null;
-			if ($login_request_info['ssl_verify_result'] == 1) {
-				throw new PVE2_Exception("Invalid SSL cert on {$this->hostname} - check that the hostname is correct, and that it appears in the server certificate's SAN list. Alternatively set the verify_ssl flag to false if you are using internal self-signed certs (ensure you are aware of the security risks before doing so).", 4);
+		if ($this->api_token_access) {
+			$put_post_http_headers[] = "Authorization: PVEAPIToken={$this->tokenid}={$this->tokensecret}";
+			curl_setopt($prox_ch, CURLOPT_URL, $api_url_base."/version");
+			curl_setopt($prox_ch, CURLOPT_RETURNTRANSFER, true);
+			curl_setopt($prox_ch, CURLOPT_SSL_VERIFYPEER, $this->verify_ssl);
+			curl_setopt($prox_ch, CURLOPT_SSL_VERIFYHOST, $this->verify_ssl);
+			$version_information = curl_exec($prox_ch);
+			$version_information_info = curl_getinfo($prox_ch);
+			$version_information_data = json_decode($version_information, true);
+			curl_close($prox_ch);
+			unset($prox_ch);
+			
+			if (!$version_information) {
+				// SSL negotiation failed or connection timed out
+				return false;
 			}
-			return false;
+
+			if ($version_information_data == null || $version_information_data['data'] == null) {
+				// Login failed.
+				if ($version_information_info['ssl_verify_result'] == 1) {
+					throw new PVE2_Exception("Invalid SSL cert on {$this->hostname} - check that the hostname is correct, and that it appears in the server certificate's SAN list. Alternatively set the verify_ssl flag to false if you are using internal self-signed certs (ensure you are aware of the security risks before doing so).", 4);
+				}
+				return false;
+			} else {
+				// Login success.
+				$this->reload_node_list();
+				return true;
+			}
 		} else {
-			// Login success.
-			$this->login_ticket = $login_ticket_data['data'];
-			// We store a UNIX timestamp of when the ticket was generated here,
-			// so we can identify when we need a new one expiration-wise later
-			// on...
-			$this->login_ticket_timestamp = time();
-			$this->reload_node_list();
-			return true;
+			// If we can use API token access, do so.
+			
+			$login_postfields['username'] = $this->username;
+			$login_postfields['password'] = $this->password;
+			$login_postfields['realm'] = $this->realm;
+
+			$login_postfields_string = http_build_query($login_postfields);
+			unset($login_postfields);
+
+			// Perform login request.
+
+			curl_setopt($prox_ch, CURLOPT_URL, $api_url_base."/access/ticket");
+			curl_setopt($prox_ch, CURLOPT_RETURNTRANSFER, true);
+			curl_setopt($prox_ch, CURLOPT_SSL_VERIFYPEER, $this->verify_ssl);
+			curl_setopt($prox_ch, CURLOPT_SSL_VERIFYHOST, $this->verify_ssl);
+
+			$login_ticket_request = curl_exec($prox_ch);
+			$login_request_info = curl_getinfo($prox_ch);
+
+			curl_close($prox_ch);
+			unset($prox_ch);
+			unset($login_postfields_string);
+
+			if (!$login_ticket_request) {
+				throw new PVE2_Exception("SSL negotiation failed or connection timed out.", 7);
+				// SSL negotiation failed or connection timed out
+				$this->login_ticket_timestamp = null;
+				return false;
+			}
+			
+			$login_ticket_data = json_decode($login_ticket_request, true);
+			if ($login_ticket_data == null || $login_ticket_data['data'] == null) {
+				// Login failed.
+				// Just to be safe, set this to null again.
+				$this->login_ticket_timestamp = null;
+				if ($login_request_info['ssl_verify_result'] == 1) {
+					throw new PVE2_Exception("Invalid SSL cert on {$this->hostname} - check that the hostname is correct, and that it appears in the server certificate's SAN list. Alternatively set the verify_ssl flag to false if you are using internal self-signed certs (ensure you are aware of the security risks before doing so).", 4);
+				}
+				return false;
+			} else {
+				// Login success.
+				$this->login_ticket = $login_ticket_data['data'];
+				// We store a UNIX timestamp of when the ticket was generated here,
+				// so we can identify when we need a new one expiration-wise later
+				// on...
+				$this->login_ticket_timestamp = time();
+				$this->reload_node_list();
+				return true;
+				}
+			}
 		}
-	}
+
 
 	# Sets the PVEAuthCookie
 	# Attetion, after using this the user is logged into the web interface aswell!
 	# Use with care, and DO NOT use with root, it may harm your system
 	public function setCookie() {
+		// exit successfully if api_token_access is true
+		if ($this->api_token_access) {
+			return true;
+		}
 		if (!$this->check_login_ticket()) {
 			throw new PVE2_Exception("Not logged into Proxmox host. No Login access ticket found or ticket expired.", 3);
-		}
+		} 
 
 		setrawcookie("PVEAuthCookie", $this->login_ticket['ticket'], 0, "/");
 	}
@@ -138,19 +189,24 @@ class PVE2_API {
 	 * Method of checking is purely by age of ticket right now...
 	 */
 	protected function check_login_ticket () {
-		if ($this->login_ticket == null) {
-			// Just to be safe, set this to null again.
-			$this->login_ticket_timestamp = null;
-			return false;
-		}
-		if ($this->login_ticket_timestamp >= (time() + 7200)) {
-			// Reset login ticket object values.
-			$this->login_ticket = null;
-			$this->login_ticket_timestamp = null;
-			return false;
-		} else {
-			return true;
-		}
+			// if api_token_access is true, return true
+			if ($this->api_token_access) {
+				return true;
+			}
+			if ( $this->login_ticket  == null) {
+				// Just to be safe, set this to null again.
+				$this->login_ticket_timestamp = null;
+				return false;
+			}
+
+			if ($this->login_ticket_timestamp >= (time() + 7200)) {
+				// Reset login ticket object values.
+				$this->login_ticket = null;
+				$this->login_ticket_timestamp = null;
+				return false;
+			} else {
+				return true;
+			}
 	}
 
 	/*
@@ -163,9 +219,9 @@ class PVE2_API {
 		if (substr($action_path, 0, 1) != "/") {
 			$action_path = "/".$action_path;
 		}
-
+		
 		if (!$this->check_login_ticket()) {
-			throw new PVE2_Exception("Not logged into Proxmox host. No Login access ticket found or ticket expired.", 3);
+			throw new PVE2_Exception("No valid connection to Proxmox host. No Login access ticket found, ticket expired or no API Token set up.", 3);
 		}
 
 		// Prepare cURL resource.
@@ -177,7 +233,14 @@ class PVE2_API {
 		// Lets decide what type of action we are taking...
 		switch ($http_method) {
 			case "GET":
-				// Nothing extra to do.
+				// add headers for GET requests if api_token_access is true
+				if ($this->api_token_access) {
+					
+					$put_post_http_headers[] = "Authorization: PVEAPIToken={$this->tokenid}={$this->tokensecret}";
+					// Add required HTTP headers.
+					curl_setopt($prox_ch, CURLOPT_HTTPHEADER, $put_post_http_headers);
+				}
+
 				break;
 			case "PUT":
 				curl_setopt($prox_ch, CURLOPT_CUSTOMREQUEST, "PUT");
@@ -215,7 +278,11 @@ class PVE2_API {
 
 		curl_setopt($prox_ch, CURLOPT_HEADER, true);
 		curl_setopt($prox_ch, CURLOPT_RETURNTRANSFER, true);
-		curl_setopt($prox_ch, CURLOPT_COOKIE, "PVEAuthCookie=".$this->login_ticket['ticket']);
+		
+		// only set this cookie if api_token_access is false
+		if (!$this->api_token_access) {
+			curl_setopt($prox_ch, CURLOPT_COOKIE, "PVEAuthCookie=".$this->login_ticket['ticket']);
+		}
 		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYPEER, false);
 		curl_setopt($prox_ch, CURLOPT_SSL_VERIFYHOST, false);
 
