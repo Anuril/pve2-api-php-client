@@ -231,14 +231,19 @@ class PVE2_API {
 		curl_setopt($prox_ch, CURLOPT_URL, "https://{$this->hostname}:{$this->port}/api2/json{$action_path}");
 
 		$put_post_http_headers = array();
-		$put_post_http_headers[] = "CSRFPreventionToken: {$this->login_ticket['CSRFPreventionToken']}";
+		if (!$this->api_token_access) {
+			$put_post_http_headers[] = "CSRFPreventionToken: {$this->login_ticket['CSRFPreventionToken']}";
+		} else {
+			$put_post_http_headers[] = "Authorization: PVEAPIToken={$this->tokenid}={$this->tokensecret}";
+		}
+		
 		// Lets decide what type of action we are taking...
 		switch ($http_method) {
 			case "GET":
 				// add headers for GET requests if api_token_access is true
 				if ($this->api_token_access) {
 					
-					$put_post_http_headers[] = "Authorization: PVEAPIToken={$this->tokenid}={$this->tokensecret}";
+					
 					// Add required HTTP headers.
 					curl_setopt($prox_ch, CURLOPT_HTTPHEADER, $put_post_http_headers);
 				}
