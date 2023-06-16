@@ -85,7 +85,8 @@ class PVE2_API {
 
 		// Base URL for later use.
 		$api_url_base = "https://{$this->hostname}:{$this->port}/api2/json";
-
+		
+		// If we can use API token access, do so.
 		if ($this->api_token_access) {
 			$put_post_http_headers[] = "Authorization: PVEAPIToken={$this->tokenid}={$this->tokensecret}";
 			curl_setopt($prox_ch, CURLOPT_URL, $api_url_base."/version");
@@ -115,7 +116,7 @@ class PVE2_API {
 				return true;
 			}
 		} else {
-			// If we can use API token access, do so.
+			
 			
 			$login_postfields['username'] = $this->username;
 			$login_postfields['password'] = $this->password;
@@ -128,6 +129,7 @@ class PVE2_API {
 
 			curl_setopt($prox_ch, CURLOPT_URL, $api_url_base."/access/ticket");
 			curl_setopt($prox_ch, CURLOPT_RETURNTRANSFER, true);
+			curl_setopt($prox_ch, CURLOPT_POSTFIELDS, $login_postfields_string);
 			curl_setopt($prox_ch, CURLOPT_SSL_VERIFYPEER, $this->verify_ssl);
 			curl_setopt($prox_ch, CURLOPT_SSL_VERIFYHOST, $this->verify_ssl);
 
