@@ -15,7 +15,7 @@
   },
   "autoload": {
     "psr-4": {
-      "PVE2APIClient\\PVE2APIClient\\PVE2API\\": "src/"
+      "PVE2APIClient\\PVE2APIClient\\PVE2_API\\": "src/"
     }
   },
   "license": "MIT",
