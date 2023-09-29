@@ -1,4 +1,7 @@
-This class provides the building blocks for someone wanting to use PHP to talk to Proxmox's API.
+This class provides the building blocks for someone wanting to use PHP to talk to Proxmox's API, and is using symfony anyway.
+
+This is a fork and rewrite of [this](https://github.com/CpuID/pve2-api-php-client)
+
 Relatively simple piece of code, just provides a get/put/post/delete abstraction layer as methods
 on top of Proxmox's REST API, while also handling the Login Ticket headers required for authentication.
 
@@ -7,17 +10,23 @@ API spec available at https://pve.proxmox.com/pve-docs/api-viewer/index.html
 
 ## Requirements: ##
 
-PHP 5/7/8 with cURL (including SSL/TLS) support.
+PHP 8.1+ with symfony.
+
+Run ```php composer.phar require symfony/validator```
 
 ## Usage: ##
 
 Example - Return status array for each Proxmox Host in this cluster.
-
-    require_once("./pve2-api-php-client/pve2_api.class.php");
+```
+    require_once("./srv/pve2_api.class.php");
 
     # You can try/catch exception handle the constructor here if you want.
-    $pve2 = new PVE2_API("hostname", "username", "realm", "password");
+    $pve2 = new PVE2_API("hostname", "username", "realm", "password", port: "port", verify_ssl: true, tokenid: "tokenid", tokensecret: "tokensecret, debug: true);
     # realm above can be pve, pam or any other realm available.
+    # if you provide tokenid and tokensecret, you can leave out username & password.
+    # debug generates more verbose exceptions. 
+    # verify_ssl enables or disables ssl validation. 
+
 
     if ($pve2->login()) {
         foreach ($pve2->get_node_list() as $node_name) {
@@ -27,13 +36,15 @@ Example - Return status array for each Proxmox Host in this cluster.
         print("Login to Proxmox Host failed.\n");
         exit;
     }
+```
 
 Example - Create a new Linux Container (LXC) on the first host in the cluster.
 
+```
     require_once("./pve2-api-php-client/pve2_api.class.php");
 
     # You can try/catch exception handle the constructor here if you want.
-    $pve2 = new PVE2_API("hostname", "username", "realm", "password");
+    $pve2 = new PVE2_API("hostname", "username", "realm", "password", port: "port", verify_ssl: true, tokenid: "tokenid", tokensecret: "tokensecret, debug: true);
     # realm above can be pve, pam or any other realm available.
 
     if ($pve2->login()) {
@@ -63,13 +74,15 @@ Example - Create a new Linux Container (LXC) on the first host in the cluster.
         print("Login to Proxmox Host failed.\n");
         exit;
     }
+```
 
 Example - Modify DNS settings on an existing container on the first host.
 
+```
     require_once("./pve2-api-php-client/pve2_api.class.php");
 
     # You can try/catch exception handle the constructor here if you want.
-    $pve2 = new PVE2_API("hostname", "username", "realm", "password");
+    $pve2 = new PVE2_API("hostname", "username", "realm", "password", port: "port", verify_ssl: true, tokenid: "tokenid", tokensecret: "tokensecret, debug: true);
     # realm above can be pve, pam or any other realm available.
 
     if ($pve2->login()) {
@@ -89,13 +102,15 @@ Example - Modify DNS settings on an existing container on the first host.
         print("Login to Proxmox Host failed.\n");
         exit;
     }
+```
 
 Example - Delete an existing container.
 
+```
     require_once("./pve2-api-php-client/pve2_api.class.php");
 
     # You can try/catch exception handle the constructor here if you want.
-    $pve2 = new PVE2_API("hostname", "username", "realm", "password");
+    $pve2 = new PVE2_API("hostname", "username", "realm", "password", port: "port", verify_ssl: true, tokenid: "tokenid", tokensecret: "tokensecret, debug: true);
     # realm above can be pve, pam or any other realm available.
 
     if ($pve2->login()) {
@@ -105,6 +120,7 @@ Example - Delete an existing container.
         print("Login to Proxmox Host failed.\n");
         exit;
     }
+```
 
 Licensed under the MIT License.
 See LICENSE file.

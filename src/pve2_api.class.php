@@ -49,24 +49,29 @@ class PVE2_Exception extends \RuntimeException
 class PVE2_API
 {
 	protected string $hostname;
-	protected string $username;
+	protected ?string $username = null;
 	protected string $realm;
-	protected string $password;
+	protected ?string $password = null;
 	protected int $port;
 	protected bool $verify_ssl;
 	protected ?string $tokenid = null;
 	protected ?string $tokensecret = null;
 	protected bool $api_token_access = false;
+	protected ?array $login_ticket = null;
+    protected ?int $login_ticket_timestamp = null;
+    protected ?array $clusterNodeList = null;
+	protected bool $debug = false;
 
 	public function __construct(
 		string $hostname,
-		string $username,
+		?string $username = null,
 		string $realm,
-		string $password,
+		?string $password = null,
 		int $port = 8006,
 		bool $verify_ssl = false,
 		?string $tokenid = null,
-		?string $tokensecret = null
+		?string $tokensecret = null,
+		bool $debug = false
 	) {
 		$validator = Validation::createValidator();
 
@@ -86,9 +91,23 @@ class PVE2_API
 
 		$violations = $validator->validate($input, $constraints);
 
-		if (count($violations) > 0 || (empty($username) && empty($password) && empty($tokenid) && empty($tokensecret))) {
-			throw new BadRequestException("Invalid input parameters");
+		$violationsList = [];
+		foreach ($violations as $violation) {
+			$violationsList[] = $violation->getPropertyPath() . ': ' . $violation->getMessage();
 		}
+
+		if (!empty($violationsList)) {
+			throw new BadRequestException('Invalid input parameters: ' . implode(', ', $violationsList));
+		}
+
+		if ((empty($username) || empty($password)) && (empty($tokenid) || empty($tokensecret))) {
+			throw new BadRequestException('Either username and password OR tokenid and tokensecret must be provided.');
+		}
+
+		if (empty($username) && empty($password) && empty($tokenid) && empty($tokensecret)) {
+			throw new BadRequestException('Both username/password and tokenid/tokensecret cannot be empty. At least one pair must be provided.');
+		}
+
 
 		if (gethostbyname($hostname) == $hostname && !filter_var($hostname, FILTER_VALIDATE_IP)) {
 			throw new BadRequestException("Cannot resolve {$hostname}.");
@@ -102,6 +121,7 @@ class PVE2_API
 		$this->verify_ssl = $verify_ssl;
 		$this->tokenid = $tokenid;
 		$this->tokensecret = $tokensecret;
+		$this->debug = $debug;
 
 		$this->api_token_access = !empty($tokenid) && !empty($tokensecret);
 	}
@@ -204,15 +224,31 @@ class PVE2_API
 		try {
 			$response = $client->request($httpMethod, $url, ['body' => $parameters]);
 			$statusCode = $response->getStatusCode();
-
-			if ($statusCode !== 200) {
-				throw new PVE2_Exception("API Request failed. HTTP Response - {$statusCode}", $statusCode);
+			$errorMessage = "API Request failed. HTTP Response - {$statusCode}";
+			if ($this->debug) {
+				$errorMessage .= PHP_EOL . "HTTP Method: {$httpMethod}" . PHP_EOL . "URL: {$url}" . PHP_EOL . "Parameters: " . json_encode($parameters) . PHP_EOL . "Response Headers: " . json_encode($response->getHeaders(false)) . PHP_EOL . "Response: " . $response->getContent(false);
+			} else {
+				$errorMessage = $response->toArray()['errors'] ?? $errorMessage;
 			}
+			if ($statusCode === 200) {
+				return $response->toArray()['data'] ?? true;
+			}
+			
+			// Handle the 500 status and check ReasonPhrase
+			if ($statusCode === 500) {
+				return null;
+			}
+			
+			
 
-			$data = $response->toArray();
-			return $data['data'] ?? true;
+			throw new PVE2_Exception($errorMessage, $statusCode);
+			
 		} catch (TransportExceptionInterface $e) {
-			throw new PVE2_Exception("Transport Exception: " . $e->getMessage(), 0, $e);
+			$errorMessage = "Transport Exception: " . $e->getMessage();
+			if ($this->debug) {
+				$errorMessage .= PHP_EOL . "HTTP Method: {$httpMethod}" . PHP_EOL . "URL: {$url}" . PHP_EOL . "Parameters: " . json_encode($parameters) . PHP_EOL . "Response Headers: " . json_encode($response->getHeaders(false)) . PHP_EOL . "Response: " . $response->getContent(false);
+			}
+			throw new PVE2_Exception($errorMessage, 0, $e);
 		}
 	}
 
@@ -237,24 +273,15 @@ class PVE2_API
 
 		return $headers;
 	}
-	public function get(string $actionPath): mixed
+	public function __call($name, $arguments)
 	{
-		return $this->action($actionPath, "GET");
-	}
-
-	public function put(string $actionPath, array $parameters): mixed
-	{
-		return $this->action($actionPath, "PUT", $parameters);
-	}
-
-	public function post(string $actionPath, array $parameters): mixed
-	{
-		return $this->action($actionPath, "POST", $parameters);
-	}
-
-	public function delete(string $actionPath): mixed
-	{
-		return $this->action($actionPath, "DELETE");
+		if (in_array(strtoupper($name), ['GET', 'POST', 'PUT', 'DELETE'])) {
+			$actionPath = $arguments[0] ?? '';
+			$parameters = $arguments[1] ?? [];
+			return $this->action($actionPath, strtoupper($name), $parameters);
+		}
+	
+		throw new BadMethodCallException("Method {$name} not exists in " . __CLASS__);
 	}
 
 	public function reloadNodeList(): bool
@@ -357,5 +384,4 @@ class PVE2_API
 		$version = $this->get("/version");
 		return $version['version'] ?? null;
 	}
-	// Logout not required, PVEAuthCookie tokens have a 2 hour lifetime.
 }
