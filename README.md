@@ -1,18 +1,25 @@
+# PVE2 API wrapper for Symfony
+
 This class provides the building blocks for someone wanting to use PHP to talk to Proxmox's API, and is using symfony anyway.
 
-This is a fork and rewrite of [this](https://github.com/CpuID/pve2-api-php-client)
+This is a fork and rewrite of [this](https://github.com/CpuID/pve2-api-php-client). 
+This library probably isn't a drop-in replacement for it, but it should be relatively simple to fix your code.
+
+Due to the nature of how the Proxmox VE API works, errors 500 / 501 will return null, otherwise requesting an invalid resource to see if it already exists doesn't work. Ideally, I'd like to work towards 
+
 
 Relatively simple piece of code, just provides a get/put/post/delete abstraction layer as methods
 on top of Proxmox's REST API, while also handling the Login Ticket headers required for authentication.
+
+
+## More information: 
 
 See http://pve.proxmox.com/wiki/Proxmox_VE_API for information about how this API works.
 API spec available at https://pve.proxmox.com/pve-docs/api-viewer/index.html
 
 ## Requirements: ##
 
-PHP 8.1+ with symfony.
-
-Run ```php composer.phar require symfony/validator```
+PHP 8.1+ with symfony
 
 ## Usage: ##
 
