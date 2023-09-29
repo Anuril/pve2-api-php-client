@@ -1,9 +1,9 @@
 {
-    "name": "vendor/pve2-api-client",
+    "name": "anuril/pve2-api-client",
     "description": "A Proxmox VE API v2 client for Symfony",
     "type": "library",
     "require": {
-      "php": "^8.1|^8.2",
+      "php": "^8.0|^8.2",
       "symfony/http-client": "^5.3",
       "symfony/http-foundation": "^5.3",
       "symfony/validator": "^5.3"
