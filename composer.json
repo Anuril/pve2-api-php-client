@@ -3,7 +3,7 @@
   "description": "A Proxmox VE API v2 client with symfony",
   "type": "library",
   "require": {
-    "php": "^8.0|^8.2",
+    "php": "^8.0|^8.1|^8.2",
     "symfony/http-client": "^5.3",
     "symfony/http-foundation": "^5.3",
     "symfony/validator": "^5.3"
@@ -15,7 +15,7 @@
   },
   "autoload": {
     "psr-4": {
-      "PVE2APIClient\\PVE2APIClient\\PVE2_API\\": "src/"
+      "PVE2APIClient\\PVE2_API\\": "src/"
     }
   },
   "license": "MIT",
